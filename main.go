@@ -2,12 +2,18 @@ package main
 
 import (
     "bufio"
+	"encoding/json"
     "fmt"
     "log"
     "os"
     "github.com/gorilla/websocket"
 	"net/http"
 )
+
+type Message struct {
+    Topic string      `json:"topic"`
+    Data  interface{} `json:"data"`
+}
 
 func main() {
     // WebSocket server URL
@@ -23,9 +29,6 @@ func main() {
     }
     defer conn.Close()
 
-    // Create a channel to receive ACK messages
-    ackChannel := make(chan string)
-
     // Read keyboard input in a loop
     scanner := bufio.NewScanner(os.Stdin)
     for {
@@ -40,26 +43,52 @@ func main() {
         switch input {
         case "H", "L", "R":
             // Send the command
-            message := fmt.Sprintf(`{"topic":"robot","data":{"command":"%s"}}`, input)
-            if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+            // Create a JSON message
+            message := Message{
+                Topic: "robot",
+                Data:  map[string]string{"command": input},
+            }
+
+			jsonMessage, err := json.Marshal(message)
+
+			if err != nil {
+                log.Fatal("Error marshaling message to JSON:", err)
+            }
+
+            // Send the JSON message
+            if err := conn.WriteMessage(websocket.TextMessage, jsonMessage); err != nil {
                 log.Fatal("Error sending message:", err)
             }
 
             // Wait for ACK
-            go func() {
-                _, response, err := conn.ReadMessage()
-                if err != nil {
-                    log.Fatal("Error reading response:", err)
-                }
-                ack := string(response)
-                ackChannel <- ack
-            }()
+            _, response, err := conn.ReadMessage()
+            if err != nil {
+                log.Fatal("Error reading response:", err)
+            }
 
-            // Wait for ACK and send {"topic":"ai", "data":"D"} if received
-            ack := <-ackChannel
-            if input != "H" && ack == "ACK" {
-                aiMessage := `{"topic":"ai","data":"D"}`
-                if err := conn.WriteMessage(websocket.TextMessage, []byte(aiMessage)); err != nil {
+            // Unmarshal the ACK message
+            var ackMessage string
+            if err := json.Unmarshal(response, &ackMessage); err != nil {
+                log.Fatal("Error unmarshaling ACK message:", err)
+            }
+			
+			
+			
+            if input != "H" && ackMessage == "ACK" {
+				fmt.Println("ACK received")
+                aiMessage := Message{
+                    Topic: "ai",
+                    Data:  "D",
+                }
+
+                // Marshal the AI message to JSON
+                jsonAI, err := json.Marshal(aiMessage)
+                if err != nil {
+                    log.Fatal("Error marshaling AI message to JSON:", err)
+                }
+
+                // Send the JSON AI message
+                if err := conn.WriteMessage(websocket.TextMessage, jsonAI); err != nil {
                     log.Fatal("Error sending AI message:", err)
                 }
             }
